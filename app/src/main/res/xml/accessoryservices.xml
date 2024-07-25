@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <application name="MyApplication">
+        <serviceProfile
+            id="/org/example/myapp/my_message"
+            name="myapplication"
+            role="provider"
+            serviceImpl="com.example.waterlock.presentation.MyProviderService"
+            version="1.0"
+            serviceLimit="ANY"
+            serviceTimeout="10">
+            <supportedTransports>
+                <transport type="TRANSPORT_BT" />
+                <transport type="TRANSPORT_WIFI" />
+            </supportedTransports>
+            <serviceChannel
+                id="110"
+                dataRate="low"
+                priority="low"
+                reliability="enable"/>
+        </serviceProfile>
+    </application>
+</resources>

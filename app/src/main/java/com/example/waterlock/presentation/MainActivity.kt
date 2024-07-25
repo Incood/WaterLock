@@ -18,66 +18,95 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.waterlock.R
 import com.example.waterlock.presentation.theme.Grey1
 import com.example.waterlock.presentation.theme.Grey2
 import com.example.waterlock.presentation.theme.MyGreen
 import com.example.waterlock.presentation.theme.WaterLockTheme
-import com.google.android.gms.tasks.Tasks
-import com.google.android.gms.wearable.Wearable
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.samsung.android.sdk.accessory.SAAgentV2
+import com.samsung.android.sdk.accessory.SAAgentV2.RequestAgentCallback
 import kotlin.math.roundToInt
+import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
+import com.samsung.android.sdk.SsdkUnsupportedException
+import com.samsung.android.sdk.accessory.SA
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var providerService: MyProviderService
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            WaterLockTheme {
-                WaterLockScreen { enableWaterLockMode() }
+        Log.d("MainActivity", "onCreate called")
+
+        if (!isSamsungAccessoryServiceInstalled()) {
+            Log.e("MainActivity", "Samsung Accessory Service not found")
+            showInstallSamsungAccessoryServiceDialog()
+            return
+        }
+
+        // Инициализация Samsung Accessory SDK
+        try {
+            val accessory = SA()
+            accessory.initialize(this)
+        } catch (e: SsdkUnsupportedException) {
+            Log.e("MainActivity", "Samsung Accessory SDK не поддерживается", e)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Ошибка инициализации Samsung Accessory SDK", e)
+        }
+
+        // Используйте requestAgent для инициализации MyProviderService
+        SAAgentV2.requestAgent(this, MyProviderService::class.java.name, object : RequestAgentCallback {
+            override fun onAgentAvailable(agent: SAAgentV2?) {
+                Log.d("MainActivity", "Agent available")
+                providerService = agent as MyProviderService
+                setContent {
+                    WaterLockTheme {
+                        WaterLockScreen { enableWaterLock() }
+                    }
+                }
             }
+
+            override fun onError(error: Int, message: String?) {
+                // Обработка ошибки инициализации
+                Log.e("MainActivity", "Ошибка инициализации: $error, $message")
+                showToast("Ошибка инициализации: $error, $message")
+            }
+        })
+    }
+
+    private fun isSamsungAccessoryServiceInstalled(): Boolean {
+        return try {
+            packageManager.getPackageInfo("com.samsung.android.sdk.accessory", PackageManager.GET_ACTIVITIES)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            Log.e("MainActivity", "Samsung Accessory Service not found")
+            false
         }
     }
 
-    private fun enableWaterLockMode() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                Log.d("WaterLock", "Attempting to get connected nodes")
-                val nodeClient = Wearable.getNodeClient(this@MainActivity)
-                val nodes = Tasks.await(nodeClient.connectedNodes)
-                if (nodes.isNotEmpty()) {
-                    for (node in nodes) {
-                        Log.d("WaterLock", "Found connected node: ${node.id}")
-                        val messageClient = Wearable.getMessageClient(this@MainActivity)
-                        val result = Tasks.await(
-                            messageClient.sendMessage(
-                                node.id,
-                                "/water_lock_mode",
-                                byteArrayOf()
-                            )
-                        )
-                        if (result == 0) {
-                            Log.d("WaterLock", "Water Lock Enabled")
-                        } else {
-                            Log.e("WaterLock", "Failed to enable Water Lock")
-                        }
-                    }
-                } else {
-                    Log.e("WaterLock", "No connected nodes found")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Log.e("WaterLock", "Error enabling Water Lock: ${e.message}")
-            }
+    private fun showInstallSamsungAccessoryServiceDialog() {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("market://details?id=com.samsung.android.sdk.accessory")
+            setPackage("com.android.vending")
+        }
+        startActivity(intent)
+    }
+
+    private fun enableWaterLock() {
+        try {
+            Log.d("MainActivity", "Enabling Water Lock")
+            providerService.sendWaterLockCommand()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error enabling Water Lock", e)
+            e.printStackTrace()
         }
     }
 
@@ -87,10 +116,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
 @Composable
 fun WaterLockScreen(onWaterLockEnabled: () -> Unit) {
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -151,7 +178,6 @@ fun AvgDurationAndDistance() {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Grey2, shape = RoundedCornerShape(32.dp))
-
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -198,7 +224,6 @@ fun AvgPaceAndCalories() {
                 fontSize = 12.sp,
                 color = Grey1
             )
-
         }
         Box(
             modifier = Modifier
@@ -216,7 +241,6 @@ fun AvgPaceAndCalories() {
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
-
                 Spacer(
                     modifier = Modifier
                         .width(1.dp)
@@ -224,7 +248,6 @@ fun AvgPaceAndCalories() {
                         .padding(top = 8.dp, bottom = 8.dp)
                         .background(Grey1)
                 )
-
                 Text(
                     text = "  0  ",
                     fontSize = 16.sp,
@@ -238,8 +261,8 @@ fun AvgPaceAndCalories() {
 
 @Composable
 fun WaterLockIcon(onWaterLockEnabled: () -> Unit) {
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
 
     Box(
         modifier = Modifier
